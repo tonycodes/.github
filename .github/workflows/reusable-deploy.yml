@@ -146,7 +146,7 @@ jobs:
           fi
 
           echo "Building image: ${{ inputs.app_name }}:${{ env.GIT_SHA }}"
-          eval docker build --no-cache --pull \
+          eval docker build \
             $BUILD_ARGS \
             ${{ inputs.build_args }} \
             -t ${{ inputs.app_name }}:${{ env.GIT_SHA }} .
