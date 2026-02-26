@@ -34,8 +34,6 @@ jobs:
     runs-on: ${{ fromJson(inputs.runs_on) }}
     permissions:
       contents: write
-      issues: write
-      pull-requests: write
     steps:
       - uses: actions/checkout@v4
         with:
