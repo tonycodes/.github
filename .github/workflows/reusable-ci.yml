@@ -1,0 +1,112 @@
+# =============================================================================
+# Reusable CI Workflow — tonycodes/.github
+# =============================================================================
+# Runs typecheck, lint, and tests in parallel on PRs.
+# Called by each repo's ci.yml with repo-specific inputs.
+#
+# Usage:
+#   jobs:
+#     ci:
+#       uses: tonycodes/.github/.github/workflows/reusable-ci.yml@main
+#       with:
+#         has_prisma: true
+#         has_client: true
+# =============================================================================
+
+name: CI
+
+on:
+  workflow_call:
+    inputs:
+      runs_on:
+        description: 'Runner (JSON): "ubuntu-latest" or ["self-hosted","hostinger"]'
+        type: string
+        default: '"ubuntu-latest"'
+      node_version:
+        description: 'Node.js version'
+        type: string
+        default: '20'
+      has_prisma:
+        description: 'Run prisma generate before typecheck/test'
+        type: boolean
+        default: false
+      has_client:
+        description: 'Run client/ lint, tests, and typecheck'
+        type: boolean
+        default: false
+      has_mcp:
+        description: 'Run mcp-server/ typecheck'
+        type: boolean
+        default: false
+
+jobs:
+  typecheck:
+    name: Typecheck
+    runs-on: ${{ fromJson(inputs.runs_on) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+      - run: npm ci
+      - if: ${{ inputs.has_prisma }}
+        run: npx prisma generate
+      - run: npm run typecheck --if-present
+
+  lint:
+    name: Lint
+    runs-on: ${{ fromJson(inputs.runs_on) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+      - run: npm ci
+      - if: ${{ inputs.has_prisma }}
+        run: npx prisma generate
+      - run: npm run lint --if-present
+
+  test:
+    name: Server Tests
+    runs-on: ${{ fromJson(inputs.runs_on) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+      - run: npm ci
+      - if: ${{ inputs.has_prisma }}
+        run: npx prisma generate
+      - run: npm run test:coverage --if-present
+
+  client:
+    name: Client Tests
+    if: ${{ inputs.has_client }}
+    runs-on: ${{ fromJson(inputs.runs_on) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+      - run: cd client && npm ci
+      - run: cd client && npm run lint --if-present
+      - run: cd client && npm run test:coverage --if-present
+      - run: cd client && npx tsc --noEmit
+
+  mcp:
+    name: MCP Typecheck
+    if: ${{ inputs.has_mcp }}
+    runs-on: ${{ fromJson(inputs.runs_on) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+      - run: npm ci
+      - if: ${{ inputs.has_prisma }}
+        run: npx prisma generate
+      - run: npm run typecheck:mcp

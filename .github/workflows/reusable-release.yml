@@ -1,0 +1,53 @@
+# =============================================================================
+# Reusable Release Workflow — tonycodes/.github
+# =============================================================================
+# Runs semantic-release to auto-tag and create GitHub releases.
+# Called after a successful deploy.
+#
+# Usage:
+#   jobs:
+#     release:
+#       needs: deploy
+#       uses: tonycodes/.github/.github/workflows/reusable-release.yml@main
+#       permissions:
+#         contents: write
+#       secrets: inherit
+# =============================================================================
+
+name: Release
+
+on:
+  workflow_call:
+    inputs:
+      runs_on:
+        description: 'Runner (JSON): "ubuntu-latest" or ["self-hosted","hostinger"]'
+        type: string
+        default: '"ubuntu-latest"'
+      node_version:
+        description: 'Node.js version'
+        type: string
+        default: '20'
+
+jobs:
+  release:
+    name: Tag and Release
+    runs-on: ${{ fromJson(inputs.runs_on) }}
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+          cache: npm
+
+      - run: npm ci --ignore-scripts
+
+      - run: npx semantic-release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

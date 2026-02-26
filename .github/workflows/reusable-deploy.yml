@@ -1,0 +1,272 @@
+# =============================================================================
+# Reusable Deploy Workflow — tonycodes/.github
+# =============================================================================
+# Builds Docker image on VPS and updates/creates Swarm service.
+# Called by each repo's deploy.yml with repo-specific inputs.
+#
+# Usage:
+#   jobs:
+#     deploy:
+#       uses: tonycodes/.github/.github/workflows/reusable-deploy.yml@main
+#       with:
+#         app_name: my-app
+#         prod_domain: my-app.com
+#         migration_command: 'npx prisma migrate deploy'
+#       secrets: inherit
+# =============================================================================
+
+name: Deploy
+
+on:
+  workflow_call:
+    inputs:
+      runs_on:
+        description: 'Runner (JSON): "ubuntu-latest" or ["self-hosted","hostinger"]'
+        type: string
+        default: '"ubuntu-latest"'
+      node_version:
+        description: 'Node.js version'
+        type: string
+        default: '20'
+      app_name:
+        description: 'Docker image / Swarm service name (e.g. ai-chat-widget)'
+        type: string
+        required: true
+      prod_domain:
+        description: 'Production domain for health checks (e.g. getflow.chat)'
+        type: string
+        required: true
+      vps_host:
+        description: 'VPS IP address'
+        type: string
+        default: '89.167.111.113'
+      network:
+        description: 'Docker Swarm overlay network'
+        type: string
+        default: 'traefik-public'
+      migration_command:
+        description: 'Post-deploy migration command (runs inside container)'
+        type: string
+        default: ''
+      seed_command:
+        description: 'Post-deploy seed command (runs inside container)'
+        type: string
+        default: ''
+      worker_name:
+        description: 'Worker Swarm service name (e.g. prod_autopilot_worker)'
+        type: string
+        default: ''
+      worker_command:
+        description: 'Worker entrypoint command (e.g. node server/worker.js)'
+        type: string
+        default: ''
+      vite_env_from_swarm:
+        description: 'Read VITE_* vars from .env.swarm as docker build args'
+        type: boolean
+        default: false
+      build_args:
+        description: 'Additional docker build args (e.g. --build-arg FOO=bar)'
+        type: string
+        default: ''
+      post_deploy_script:
+        description: 'Custom shell commands to run on VPS after deploy'
+        type: string
+        default: ''
+      health_endpoint:
+        description: 'Health check path (e.g. /health or /api/health)'
+        type: string
+        default: '/health'
+      docker_volumes:
+        description: 'Docker volume mount flags for service create'
+        type: string
+        default: ''
+    secrets:
+      VPS_SSH_KEY:
+        required: true
+
+jobs:
+  deploy:
+    name: Deploy to Production
+    runs-on: ${{ fromJson(inputs.runs_on) }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ inputs.node_version }}
+
+      - name: Set build metadata
+        run: |
+          GIT_SHA=$(git rev-parse --short HEAD)
+          echo "GIT_SHA=$GIT_SHA" >> $GITHUB_ENV
+          echo "BUILD_TIME=$(date -u +'%Y-%m-%dT%H:%M:%SZ')" >> $GITHUB_ENV
+          APP_VERSION=$(git describe --tags --always 2>/dev/null || echo "0.0.0")
+          echo "APP_VERSION=$APP_VERSION" >> $GITHUB_ENV
+
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.VPS_SSH_KEY }}
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -H ${{ inputs.vps_host }} >> ~/.ssh/known_hosts 2>/dev/null
+
+      - name: Pull latest code on VPS
+        run: |
+          ssh root@${{ inputs.vps_host }} "cd /root/apps/${{ inputs.app_name }} && git fetch origin main && git reset --hard origin/main"
+
+      - name: Build and deploy
+        run: |
+          ssh root@${{ inputs.vps_host }} << 'TONYCODES_DEPLOY'
+          set -e
+          cd /root/apps/${{ inputs.app_name }}
+
+          # ── Compute env args from .env.swarm ──
+          ENV_ADD=""
+          ENV_CREATE=""
+          if [ -f .env.swarm ]; then
+            while IFS= read -r line; do
+              [ -z "$line" ] || [ "${line:0:1}" = "#" ] && continue
+              ENV_ADD="$ENV_ADD --env-add $line"
+              ENV_CREATE="$ENV_CREATE --env $line"
+            done < .env.swarm
+          fi
+
+          # ── Build Docker image ──
+          BUILD_ARGS="--build-arg GIT_SHA=${{ env.GIT_SHA }} --build-arg BUILD_TIME=${{ env.BUILD_TIME }} --build-arg APP_VERSION=${{ env.APP_VERSION }}"
+
+          if [ "${{ inputs.vite_env_from_swarm }}" = "true" ] && [ -f .env.swarm ]; then
+            while IFS='=' read -r key value; do
+              case "$key" in
+                VITE_*) BUILD_ARGS="$BUILD_ARGS --build-arg ${key}=${value}" ;;
+              esac
+            done < .env.swarm
+          fi
+
+          echo "Building image: ${{ inputs.app_name }}:${{ env.GIT_SHA }}"
+          eval docker build --no-cache --pull \
+            $BUILD_ARGS \
+            ${{ inputs.build_args }} \
+            -t ${{ inputs.app_name }}:${{ env.GIT_SHA }} .
+
+          docker tag ${{ inputs.app_name }}:${{ env.GIT_SHA }} ${{ inputs.app_name }}:latest
+
+          # ── Deploy main service ──
+          if docker service inspect prod_${{ inputs.app_name }} >/dev/null 2>&1; then
+            echo "Updating service: prod_${{ inputs.app_name }}"
+            eval docker service update \
+              --image ${{ inputs.app_name }}:${{ env.GIT_SHA }} \
+              $ENV_ADD \
+              --update-parallelism 1 \
+              --update-delay 10s \
+              --update-failure-action rollback \
+              prod_${{ inputs.app_name }}
+          else
+            echo "Creating service: prod_${{ inputs.app_name }}"
+            eval docker service create \
+              --name prod_${{ inputs.app_name }} \
+              --replicas 1 \
+              --network ${{ inputs.network }} \
+              --update-parallelism 1 \
+              --update-delay 10s \
+              --update-failure-action rollback \
+              --restart-condition on-failure \
+              --restart-delay 5s \
+              --restart-max-attempts 3 \
+              ${{ inputs.docker_volumes }} \
+              $ENV_CREATE \
+              ${{ inputs.app_name }}:${{ env.GIT_SHA }}
+          fi
+
+          echo "Waiting for rollout..."
+          timeout 120 sh -c 'until docker service ps prod_${{ inputs.app_name }} --filter "desired-state=running" --format "{{.CurrentState}}" | grep -q "Running"; do sleep 5; done'
+
+          # ── Deploy worker service (if configured) ──
+          WORKER_NAME="${{ inputs.worker_name }}"
+          WORKER_CMD="${{ inputs.worker_command }}"
+          if [ -n "$WORKER_NAME" ] && [ -n "$WORKER_CMD" ]; then
+            if docker service inspect $WORKER_NAME >/dev/null 2>&1; then
+              echo "Updating worker: $WORKER_NAME"
+              eval docker service update \
+                --image ${{ inputs.app_name }}:${{ env.GIT_SHA }} \
+                $ENV_ADD \
+                $WORKER_NAME
+            else
+              echo "Creating worker: $WORKER_NAME"
+              eval docker service create \
+                --name $WORKER_NAME \
+                --replicas 1 \
+                --network ${{ inputs.network }} \
+                --restart-condition on-failure \
+                --restart-delay 5s \
+                --restart-max-attempts 3 \
+                $ENV_CREATE \
+                ${{ inputs.app_name }}:${{ env.GIT_SHA }} \
+                $WORKER_CMD
+            fi
+          fi
+
+          # ── Migrations ──
+          MIGRATION_CMD="${{ inputs.migration_command }}"
+          if [ -n "$MIGRATION_CMD" ]; then
+            echo "Running migrations..."
+            sleep 10
+            CONTAINER_ID=$(docker ps -q -f name=prod_${{ inputs.app_name }} | head -1)
+            if [ -n "$CONTAINER_ID" ]; then
+              docker exec $CONTAINER_ID $MIGRATION_CMD
+            else
+              echo "ERROR: No running container found for migration"
+              exit 1
+            fi
+          fi
+
+          # ── Seed ──
+          SEED_CMD="${{ inputs.seed_command }}"
+          if [ -n "$SEED_CMD" ]; then
+            echo "Running seed..."
+            CONTAINER_ID=$(docker ps -q -f name=prod_${{ inputs.app_name }} | head -1)
+            if [ -n "$CONTAINER_ID" ]; then
+              docker exec $CONTAINER_ID $SEED_CMD
+            fi
+          fi
+
+          # ── Custom post-deploy ──
+          ${{ inputs.post_deploy_script }}
+
+          # ── Summary ──
+          echo ""
+          echo "=== Deployment Complete ==="
+          echo "Image: ${{ inputs.app_name }}:${{ env.GIT_SHA }}"
+          docker service ps prod_${{ inputs.app_name }} --format "table {{.Name}}\t{{.Image}}\t{{.CurrentState}}"
+
+          # ── Cleanup old images (keep last 3) ──
+          docker images ${{ inputs.app_name }} --format "{{.Tag}}" | tail -n +4 | xargs -r -I {} docker rmi ${{ inputs.app_name }}:{} 2>/dev/null || true
+          TONYCODES_DEPLOY
+
+      - name: Verify deployment
+        run: |
+          echo "Verifying deployment..."
+          sleep 10
+          HEALTH=$(curl -sf "https://${{ inputs.prod_domain }}${{ inputs.health_endpoint }}" 2>/dev/null || echo "")
+          if [ -z "$HEALTH" ]; then
+            echo "Health endpoint not responding yet (may need time for SSL)"
+            exit 0
+          fi
+          echo "Health: $HEALTH"
+          DEPLOYED=$(echo "$HEALTH" | jq -r '.build.commit // empty' 2>/dev/null || echo "")
+          if [ -n "$DEPLOYED" ] && [ "$DEPLOYED" = "${{ env.GIT_SHA }}" ]; then
+            echo "Commit verified: $DEPLOYED"
+          fi
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "Deployment failed!"
+          echo "Manual recovery:"
+          echo "  ssh root@${{ inputs.vps_host }}"
+          echo "  docker service logs prod_${{ inputs.app_name }} --tail 50"
+          echo "  docker service rollback prod_${{ inputs.app_name }}"
+          exit 1
