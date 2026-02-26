@@ -84,6 +84,10 @@ on:
         description: 'Docker build target stage (e.g. production)'
         type: string
         default: ''
+    secrets:
+      VPS_SSH_KEY:
+        description: 'SSH private key for VPS access'
+        required: true
 jobs:
   deploy:
     name: Deploy to Production
