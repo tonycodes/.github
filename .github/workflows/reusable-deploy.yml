@@ -21,9 +21,9 @@ on:
   workflow_call:
     inputs:
       runs_on:
-        description: 'Runner (JSON): "ubuntu-latest" or ["self-hosted","hostinger"]'
+        description: 'Runner (JSON): "ubuntu-latest" or ["self-hosted"]'
         type: string
-        default: '["self-hosted", "hostinger"]'
+        default: '["self-hosted"]'
       node_version:
         description: 'Node.js version'
         type: string
