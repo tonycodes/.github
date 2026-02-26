@@ -80,10 +80,6 @@ on:
         description: 'Docker volume mount flags for service create'
         type: string
         default: ''
-    secrets:
-      VPS_SSH_KEY:
-        required: true
-
 jobs:
   deploy:
     name: Deploy to Production
