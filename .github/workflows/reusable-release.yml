@@ -24,9 +24,9 @@ on:
         type: string
         default: '["self-hosted"]'
       node_version:
-        description: 'Node.js version'
+        description: 'Node.js version (semantic-release v25 requires 22+)'
         type: string
-        default: '20'
+        default: '22'
 
 jobs:
   release:
