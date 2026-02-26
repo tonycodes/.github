@@ -80,6 +80,10 @@ on:
         description: 'Docker volume mount flags for service create'
         type: string
         default: ''
+      docker_target:
+        description: 'Docker build target stage (e.g. production)'
+        type: string
+        default: ''
 jobs:
   deploy:
     name: Deploy to Production
@@ -145,8 +149,15 @@ jobs:
             done < .env.swarm
           fi
 
+          # ── Docker target stage ──
+          TARGET_FLAG=""
+          if [ -n "${{ inputs.docker_target }}" ]; then
+            TARGET_FLAG="--target ${{ inputs.docker_target }}"
+          fi
+
           echo "Building image: ${{ inputs.app_name }}:${{ env.GIT_SHA }}"
           eval docker build \
+            $TARGET_FLAG \
             $BUILD_ARGS \
             ${{ inputs.build_args }} \
             -t ${{ inputs.app_name }}:${{ env.GIT_SHA }} .
