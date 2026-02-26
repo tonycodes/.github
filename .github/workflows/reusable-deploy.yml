@@ -23,7 +23,7 @@ on:
       runs_on:
         description: 'Runner (JSON): "ubuntu-latest" or ["self-hosted","hostinger"]'
         type: string
-        default: '"ubuntu-latest"'
+        default: '["self-hosted", "hostinger"]'
       node_version:
         description: 'Node.js version'
         type: string
