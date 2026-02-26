@@ -84,6 +84,9 @@ jobs:
   deploy:
     name: Deploy to Production
     runs-on: ${{ fromJson(inputs.runs_on) }}
+    concurrency:
+      group: deploy-${{ inputs.vps_host }}
+      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v4
