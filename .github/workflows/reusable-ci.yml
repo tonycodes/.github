@@ -1,8 +1,9 @@
 # =============================================================================
 # Reusable CI Workflow — tonycodes/.github
 # =============================================================================
-# Runs typecheck, lint, and tests in parallel on PRs.
-# Called by each repo's ci.yml with repo-specific inputs.
+# Runs quality checks and tests on PRs.
+# Optimized for self-hosted runners: combines lightweight checks into one job
+# to minimize redundant npm ci calls.
 #
 # Usage:
 #   jobs:
@@ -40,8 +41,8 @@ on:
         default: false
 
 jobs:
-  typecheck:
-    name: Typecheck
+  quality:
+    name: Typecheck & Lint
     runs-on: ${{ fromJson(inputs.runs_on) }}
     steps:
       - uses: actions/checkout@v4
@@ -53,20 +54,9 @@ jobs:
       - if: ${{ inputs.has_prisma }}
         run: npx prisma generate
       - run: npm run typecheck --if-present
-
-  lint:
-    name: Lint
-    runs-on: ${{ fromJson(inputs.runs_on) }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ inputs.node_version }}
-          cache: npm
-      - run: npm ci
-      - if: ${{ inputs.has_prisma }}
-        run: npx prisma generate
       - run: npm run lint --if-present
+      - if: ${{ inputs.has_mcp }}
+        run: npm run typecheck:mcp
 
   test:
     name: Server Tests
@@ -95,18 +85,3 @@ jobs:
       - run: cd client && npm run lint --if-present
       - run: cd client && npm run test:coverage --if-present
       - run: cd client && npx tsc --noEmit
-
-  mcp:
-    name: MCP Typecheck
-    if: ${{ inputs.has_mcp }}
-    runs-on: ${{ fromJson(inputs.runs_on) }}
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: ${{ inputs.node_version }}
-          cache: npm
-      - run: npm ci
-      - if: ${{ inputs.has_prisma }}
-        run: npx prisma generate
-      - run: npm run typecheck:mcp
