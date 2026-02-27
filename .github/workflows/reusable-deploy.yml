@@ -257,8 +257,9 @@ jobs:
           echo "Image: ${{ inputs.app_name }}:${{ env.GIT_SHA }}"
           docker service ps prod_${{ inputs.app_name }} --format "table {{.Name}}\t{{.Image}}\t{{.CurrentState}}"
 
-          # ── Cleanup old images (keep last 3) ──
-          docker images ${{ inputs.app_name }} --format "{{.Tag}}" | tail -n +4 | xargs -r -I {} docker rmi ${{ inputs.app_name }}:{} 2>/dev/null || true
+          # ── Cleanup old images (keep current SHA + latest only) ──
+          docker images ${{ inputs.app_name }} --format "{{.ID}} {{.Tag}} {{.CreatedAt}}" | sort -k3 -r | grep -v latest | tail -n +2 | awk '{print $1}' | xargs -r docker rmi 2>/dev/null || true
+          docker builder prune -f --filter "until=24h" 2>/dev/null || true
           TONYCODES_DEPLOY
 
       - name: Verify deployment
