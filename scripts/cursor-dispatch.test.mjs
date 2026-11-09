@@ -5,7 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { decide } from "./cursor-dispatch.mjs";
+import { countRecentLaunches, decide, recentLaunchCountFromSearch } from "./cursor-dispatch.mjs";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const repoRoot = dirname(root);
@@ -39,6 +39,9 @@ test("issue opened by tonycodes launches a test-first fix against the default br
   assert.match(text, /Never merge\./);
   assert.match(text, /Never use admin bypass\./);
   assert.match(text, /Never edit rulesets\./);
+  assert.match(text, /never deploy, release or trigger deploy workflows/);
+  assert.match(text, /never touch workflows, rulesets or secrets/);
+  assert.match(text, /never open issues or start agents/);
   assert.match(text, /Open a pull request/);
   assert.match(text, /dev tests, PO after-green review, QA G3/);
   assert.doesNotMatch(text, /Post review comments only/);
@@ -53,22 +56,32 @@ test("issue opened by another author without agent-ok is skipped", () => {
   assert.match(result.reason, /author/i);
 });
 
-test("label agent-ok allows an issue from another author", () => {
+test("label agent-ok from another author is plan-only and does not change code", () => {
   const result = plan("issue-opened-agent-ok.json", "issues");
   assert.equal(result.dispatch, true);
   assert.equal(result.number, 14);
-  assert.match(result.body.prompt.text, /failing test first/);
-  assert.equal(result.body.autoCreatePR, true);
+  assert.equal(result.body.mode, "plan");
+  assert.equal(result.body.autoCreatePR, false);
+  assert.equal(result.body.workOnCurrentBranch, false);
+  const text = result.body.prompt.text;
+  assert.match(text, /Comment a plan only/);
+  assert.match(text, /Do not change code/);
+  assert.doesNotMatch(text, /failing test first/);
+  assertSafetyPhrases(text);
 });
 
-test("label agent-ok allows a pull request from another author", () => {
+test("label agent-ok on a pull request from another author is plan-only", () => {
   const event = load("pr-ready-tonycodes.json");
   event.pull_request.user = { login: "otherperson", type: "User" };
   event.pull_request.labels = [{ name: "agent-ok" }];
   const result = decide({ eventName: "pull_request", event });
   assert.equal(result.dispatch, true);
-  assert.match(result.body.prompt.text, /Post review comments only/);
+  assert.equal(result.body.mode, "plan");
   assert.equal(result.body.autoCreatePR, false);
+  assert.match(result.body.prompt.text, /Comment a plan only/);
+  assert.match(result.body.prompt.text, /Do not change code/);
+  assert.doesNotMatch(result.body.prompt.text, /Post review comments only/);
+  assertSafetyPhrases(result.body.prompt.text);
 });
 
 test("pull request head branch starting with cursor/ is skipped", () => {
@@ -145,7 +158,11 @@ test("ready pull request prompts for review comments only and does not push", ()
   assert.match(text, /Never merge\./);
   assert.match(text, /Never use admin bypass\./);
   assert.match(text, /Never edit rulesets\./);
+  assert.match(text, /never deploy, release or trigger deploy workflows/);
+  assert.match(text, /never touch workflows, rulesets or secrets/);
+  assert.match(text, /never open issues or start agents/);
   assert.doesNotMatch(text, /failing test first/);
+  assert.equal(result.body.mode, undefined);
 });
 
 test("issue and pull request prompts are different tasks", () => {
@@ -180,14 +197,103 @@ test("a pull request with no head repository is treated as a fork", () => {
   assert.match(result.reason, /fork/i);
 });
 
+test("a non-draft pull request opened by tonycodes is reviewed", () => {
+  const event = load("pr-ready-tonycodes.json");
+  event.action = "opened";
+  event.pull_request.draft = false;
+  const result = decide({ eventName: "pull_request", event });
+  assert.equal(result.dispatch, true);
+  assert.match(result.body.prompt.text, /Post review comments only/);
+  assert.equal(result.body.autoCreatePR, false);
+  assertSafetyPhrases(result.body.prompt.text);
+});
+
+test("a draft pull request opened by tonycodes is skipped", () => {
+  const event = load("pr-ready-tonycodes.json");
+  event.action = "opened";
+  event.pull_request.draft = true;
+  const result = decide({ eventName: "pull_request", event });
+  assert.equal(result.dispatch, false);
+  assert.match(result.reason, /draft/i);
+});
+
+test("an api-created issue is skipped", () => {
+  const event = load("issue-opened-tonycodes.json");
+  event.issue.performed_via_github_app = { slug: "bulk-importer", id: 1 };
+  const result = decide({ eventName: "issues", event });
+  assert.equal(result.dispatch, false);
+  assert.match(result.reason, /api-created/);
+});
+
+test("a bulk-imported issue is skipped", () => {
+  const event = load("issue-opened-tonycodes.json");
+  event.issue.author_association = "MANNEQUIN";
+  const result = decide({ eventName: "issues", event });
+  assert.equal(result.dispatch, false);
+  assert.match(result.reason, /bulk-imported/);
+});
+
+test("the hourly launch cap skips when the repo already reached the default of 5", () => {
+  const capped = plan("issue-opened-tonycodes.json", "issues", { recentLaunchCount: 5 });
+  assert.equal(capped.dispatch, false);
+  assert.match(capped.reason, /cap of 5 per hour/);
+  const allowed = plan("issue-opened-tonycodes.json", "issues", { recentLaunchCount: 4 });
+  assert.equal(allowed.dispatch, true);
+});
+
+test("launch timestamps outside the last hour do not count toward the cap", () => {
+  const now = Date.parse("2026-11-09T22:00:00Z");
+  const recent = new Date(now - 30 * 60 * 1000).toISOString();
+  const stale = new Date(now - 2 * 60 * 60 * 1000).toISOString();
+  assert.equal(countRecentLaunches([recent, stale], now), 1);
+  assert.equal(
+    recentLaunchCountFromSearch(
+      { total_count: 8, items: [{ updated_at: recent }] },
+      now,
+    ),
+    8,
+  );
+  assert.equal(
+    recentLaunchCountFromSearch(
+      { total_count: 8, items: [{ updated_at: recent }, { updated_at: stale }] },
+      now,
+    ),
+    1,
+  );
+});
+
+test("the hourly launch cap honors a configured maximum", () => {
+  const capped = plan("issue-opened-tonycodes.json", "issues", {
+    recentLaunchCount: 2,
+    maxLaunchesPerHour: 2,
+  });
+  assert.equal(capped.dispatch, false);
+  assert.match(capped.reason, /cap of 2 per hour/);
+  const allowed = plan("issue-opened-tonycodes.json", "issues", {
+    recentLaunchCount: 1,
+    maxLaunchesPerHour: 2,
+  });
+  assert.equal(allowed.dispatch, true);
+});
+
+test("the dedupe key is stable for one item and different for another", () => {
+  const first = plan("issue-opened-tonycodes.json", "issues");
+  const second = plan("issue-opened-tonycodes.json", "issues");
+  assert.equal(first.body.agentId, second.body.agentId);
+  assert.match(
+    first.body.agentId,
+    /^bc-[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+  );
+  const review = plan("pr-ready-tonycodes.json", "pull_request");
+  assert.notEqual(first.body.agentId, review.body.agentId);
+  const otherIssue = plan("issue-opened-agent-ok.json", "issues");
+  assert.notEqual(first.body.agentId, otherIssue.body.agentId);
+});
+
 test("unsupported actions are skipped", () => {
   const closed = load("issue-opened-tonycodes.json");
   closed.action = "closed";
   assert.equal(decide({ eventName: "issues", event: closed }).dispatch, false);
-
-  const openedPr = load("pr-ready-tonycodes.json");
-  openedPr.action = "opened";
-  assert.equal(decide({ eventName: "pull_request", event: openedPr }).dispatch, false);
 
   assert.equal(decide({ eventName: "push", event: { action: "opened" } }).dispatch, false);
 });
@@ -237,6 +343,11 @@ test("dispatch workflow pins actions, masks the key, and limits curl", () => {
   assert.match(workflow, /--max-time/);
   assert.match(workflow, /https:\/\/api\.cursor\.com\/v1\/agents/);
   assert.match(workflow, /agent-started/);
+  assert.match(workflow, /vars\.CURSOR_AGENT_DISPATCH != 'off'/);
+  assert.match(workflow, /max_launches_per_hour:/);
+  assert.match(workflow, /default:\s*5/);
+  assert.match(workflow, /gh label create agent-started[\s\S]*--force/);
+  assert.match(workflow, /409/);
   assert.doesNotMatch(workflow, /required:\s*true/);
   const withoutMask = workflow.replaceAll('echo "::add-mask::${CURSOR_API_KEY}"', "");
   assert.doesNotMatch(withoutMask, /echo\b[^\n]*CURSOR_API_KEY/);
@@ -248,17 +359,27 @@ test("dispatch workflow pins actions, masks the key, and limits curl", () => {
   }
 });
 
+function assertSafetyPhrases(text) {
+  assert.match(text, /never deploy, release or trigger deploy workflows/);
+  assert.match(text, /never touch workflows, rulesets or secrets/);
+  assert.match(text, /never open issues or start agents/);
+}
+
 test("readme documents the caller snippet", () => {
   const readme = readFileSync(join(repoRoot, "README.md"), "utf8");
-  assert.match(readme, /types: \[opened\]/);
-  assert.match(readme, /types: \[ready_for_review\]/);
-  assert.match(
-    readme,
-    /uses: tonycodes\/\.github\/\.github\/workflows\/cursor-agent-dispatch\.yml@main/,
+  const cursor = readme.slice(
+    readme.indexOf("cursor-agent-dispatch.yml"),
+    readme.indexOf("reusable-release.yml"),
   );
-  assert.match(readme, /contents: read/);
-  assert.match(readme, /issues: write/);
-  assert.match(readme, /pull-requests: write/);
-  assert.match(readme, /secrets: inherit/);
-  assert.match(readme, /CURSOR_API_KEY/);
+  assert.match(cursor, /types: \[opened\]/);
+  assert.match(cursor, /types: \[opened, ready_for_review\]/);
+  assert.match(
+    cursor,
+    /uses: tonycodes\/\.github\/\.github\/workflows\/cursor-agent-dispatch\.yml@[0-9a-f]{40}/,
+  );
+  assert.match(cursor, /contents: read/);
+  assert.match(cursor, /issues: write/);
+  assert.match(cursor, /pull-requests: write/);
+  assert.match(cursor, /CURSOR_API_KEY:\s*\$\{\{\s*secrets\.CURSOR_API_KEY\s*\}\}/);
+  assert.doesNotMatch(cursor, /secrets:\s*inherit/);
 });

@@ -44,13 +44,15 @@ jobs:
 
 ### `cursor-agent-dispatch.yml` — Cursor cloud agent
 
-Launches a Cursor cloud agent for `issues` opened and `pull_request` ready for review, so calling repositories do not need a polling agent. The workflow is `workflow_call` with no inputs and reads `github.event` from the caller.
+Launches a Cursor cloud agent for `issues` opened and for pull requests that are opened as non-drafts or marked ready for review, so calling repositories do not need a polling agent. The workflow is `workflow_call` and reads `github.event` from the caller. Optional input `max_launches_per_hour` defaults to 5.
 
-The agent runs only when the issue or pull request author is `tonycodes`, or the item has the `agent-ok` label. It skips forks, bot authors, pull request head branches that start with `cursor/`, and items that already have the `agent-started` label. On a launch it creates `agent-started` if missing and adds it. If the Cursor API call fails, it removes that label so a rerun can try again.
+The job runs only when the repository variable `CURSOR_AGENT_DISPATCH` is not `off`. This repository does not set that variable from CI.
 
-An opened issue gets a test-first fix: failing test first, then the change that makes it pass, then a pull request for the normal gates (dev tests, PO after-green review, QA G3). A pull request marked ready for review gets review comments only. That agent is told not to push.
+The agent runs when the author is `tonycodes`, or the item has the `agent-ok` label. Authors other than `tonycodes` get a plan comment only, with no code changes. It skips forks, bot authors, draft pull requests that were just opened, pull request head branches that start with `cursor/`, API-created issues, bulk-imported issues, items that already have `agent-started`, and repositories that already hit the hourly launch cap. Each launch uses a deterministic id from the repository and the issue or pull request number, so a retry does not start a second agent. On a launch it creates `agent-started` with `--force` if needed and adds it. If the Cursor API call fails, it removes that label so a rerun can try again.
 
-`CURSOR_API_KEY` is required to launch an agent. Pass it with `secrets: inherit` or set `CURSOR_API_KEY` explicitly. The workflow masks the key and sends it only in an `Authorization: Bearer` header. Fork pull requests cannot receive secrets, so a skipped fork does not need the key and `workflow_call` does not mark the secret required. A real launch without the key fails.
+An opened issue from `tonycodes` gets a test-first fix: failing test first, then the change that makes it pass, then a pull request for the normal gates (dev tests, PO after-green review, QA G3). A non-draft pull request from `tonycodes`, including one marked ready for review, gets review comments only. That agent is told not to push. Every prompt forbids deploys, releases, workflow edits, ruleset edits, secret edits, opening issues, and starting further agents.
+
+`CURSOR_API_KEY` is required to launch an agent. Pass it explicitly. The workflow masks the key and sends it only in an `Authorization: Bearer` header. A launch without the key fails. Pin the workflow by the full commit SHA below. That SHA is the commit that contains this dispatcher.
 
 ```yaml
 name: Cursor Agent
@@ -59,7 +61,7 @@ on:
   issues:
     types: [opened]
   pull_request:
-    types: [ready_for_review]
+    types: [opened, ready_for_review]
 
 permissions:
   contents: read
@@ -68,8 +70,9 @@ permissions:
 
 jobs:
   dispatch:
-    uses: tonycodes/.github/.github/workflows/cursor-agent-dispatch.yml@main
-    secrets: inherit
+    uses: tonycodes/.github/.github/workflows/cursor-agent-dispatch.yml@e354c96834da18c7b6c6383a6b2f0404d1a2e032
+    secrets:
+      CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
 ```
 
 The launch call is `POST https://api.cursor.com/v1/agents`. That is the current Create Agent endpoint in the [Cloud Agents API](https://cursor.com/docs/cloud-agent/api/endpoints). Authentication is the bearer header described in the [Cursor APIs overview](https://cursor.com/docs/api). `POST /v0/agents` is the legacy surface and is not called.
