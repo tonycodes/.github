@@ -277,6 +277,20 @@ function formatIso(ms) {
   return new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z");
 }
 
+export function launchWindowStart(now = Date.now()) {
+  return formatIso(now - LAUNCH_WINDOW_MS);
+}
+
+export function launchSearchQuery(repository, sinceIso) {
+  if (typeof repository !== "string" || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
+    throw new Error("repository is not usable");
+  }
+  if (typeof sinceIso !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(sinceIso)) {
+    throw new Error("launch window must be a UTC timestamp");
+  }
+  return `repo:${repository} label:agent-started updated:>=${sinceIso}`;
+}
+
 function buildIssueRequest(event, planOnly) {
   const issue = event.issue;
   const url = repositoryUrl(event.repository);
@@ -481,7 +495,12 @@ function main(argv) {
   if (args.print === "launch-window-start") {
     const now = args.now ? Date.parse(args.now) : Date.now();
     if (!Number.isFinite(now)) throw new Error("invalid --now");
-    process.stdout.write(formatIso(now - LAUNCH_WINDOW_MS));
+    process.stdout.write(launchWindowStart(now));
+    return;
+  }
+  if (args.print === "launch-search-query") {
+    const since = args.since || launchWindowStart();
+    process.stdout.write(launchSearchQuery(requiredArg(args, "repo"), since));
     return;
   }
   if (args.extract === "launch") {

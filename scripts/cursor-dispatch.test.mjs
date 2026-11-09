@@ -5,7 +5,13 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
-import { countRecentLaunches, decide, recentLaunchCountFromSearch } from "./cursor-dispatch.mjs";
+import {
+  countRecentLaunches,
+  decide,
+  launchSearchQuery,
+  launchWindowStart,
+  recentLaunchCountFromSearch,
+} from "./cursor-dispatch.mjs";
 
 const root = dirname(fileURLToPath(import.meta.url));
 const repoRoot = dirname(root);
@@ -241,6 +247,17 @@ test("the hourly launch cap skips when the repo already reached the default of 5
   assert.equal(allowed.dispatch, true);
 });
 
+test("cap search query uses a one-hour timestamp", () => {
+  const now = Date.parse("2026-11-09T22:15:45Z");
+  const since = launchWindowStart(now);
+  assert.equal(since, "2026-11-09T21:15:45Z");
+  assert.equal(
+    launchSearchQuery("tonycodes/example", since),
+    "repo:tonycodes/example label:agent-started updated:>=2026-11-09T21:15:45Z",
+  );
+  assert.throws(() => launchSearchQuery("tonycodes/example", "2026-11-09"), /UTC timestamp/);
+});
+
 test("launch timestamps outside the last hour do not count toward the cap", () => {
   const now = Date.parse("2026-11-09T22:00:00Z");
   const recent = new Date(now - 30 * 60 * 1000).toISOString();
@@ -336,14 +353,30 @@ test("dispatch workflow pins actions, masks the key, and limits curl", () => {
   );
   assert.match(workflow, /^on:\n {2}workflow_call:/m);
   assert.match(workflow, /^permissions: \{\}$/m);
+  const killSwitch = workflow.match(/^\s*if:\s*(.+)$/m)[1].trim();
+  assert.equal(killSwitch, "vars.CURSOR_AGENT_DISPATCH == 'on'");
+  assert.equal(dispatchEnabled(killSwitch, undefined), false);
+  assert.equal(dispatchEnabled(killSwitch, null), false);
+  assert.equal(dispatchEnabled(killSwitch, ""), false);
+  assert.equal(dispatchEnabled(killSwitch, "off"), false);
+  assert.equal(dispatchEnabled(killSwitch, "on"), true);
   assert.match(workflow, /concurrency:/);
-  assert.match(workflow, /cursor-agent-/);
+  assert.match(
+    workflow,
+    /group: cursor-agent-\$\{\{ github\.repository \}\}\n {2}cancel-in-progress: false/,
+  );
+  assert.doesNotMatch(
+    workflow,
+    /github\.event\.issue\.number \|\| github\.event\.pull_request\.number/,
+  );
   assert.match(workflow, /echo "::add-mask::\$\{CURSOR_API_KEY\}"/);
   assert.match(workflow, /--fail-with-body/);
   assert.match(workflow, /--max-time/);
   assert.match(workflow, /https:\/\/api\.cursor\.com\/v1\/agents/);
   assert.match(workflow, /agent-started/);
-  assert.match(workflow, /vars\.CURSOR_AGENT_DISPATCH != 'off'/);
+  assert.match(workflow, /--since "\$\{since\}"/);
+  assert.match(workflow, /--print launch-search-query/);
+  assert.doesNotMatch(workflow, /updated_day|%%T\*/);
   assert.match(workflow, /max_launches_per_hour:/);
   assert.match(workflow, /default:\s*5/);
   assert.match(workflow, /gh label create agent-started[\s\S]*--force/);
@@ -358,6 +391,13 @@ test("dispatch workflow pins actions, masks the key, and limits curl", () => {
     assert.match(use, /@[0-9a-f]{40}$/);
   }
 });
+
+function dispatchEnabled(expression, variable) {
+  const equals = expression.match(/^vars\.CURSOR_AGENT_DISPATCH == '([^']*)'$/);
+  if (!equals) return false;
+  if (variable == null || variable === "") return false;
+  return variable === equals[1];
+}
 
 function assertSafetyPhrases(text) {
   assert.match(text, /never deploy, release or trigger deploy workflows/);
@@ -382,4 +422,20 @@ test("readme documents the caller snippet", () => {
   assert.match(cursor, /pull-requests: write/);
   assert.match(cursor, /CURSOR_API_KEY:\s*\$\{\{\s*secrets\.CURSOR_API_KEY\s*\}\}/);
   assert.doesNotMatch(cursor, /secrets:\s*inherit/);
+  assert.match(cursor, /dispatch is off unless the repo variable is set to 'on'/);
+  const pin = cursor.match(
+    /cursor-agent-dispatch\.yml@([0-9a-f]{40})/,
+  )[1];
+  const pinned = spawnSync(
+    "git",
+    ["show", `${pin}:.github/workflows/cursor-agent-dispatch.yml`],
+    { encoding: "utf8", cwd: repoRoot },
+  );
+  assert.equal(pinned.status, 0, pinned.stderr);
+  assert.match(pinned.stdout, /vars\.CURSOR_AGENT_DISPATCH == 'on'/);
+  assert.match(
+    pinned.stdout,
+    /group: cursor-agent-\$\{\{ github\.repository \}\}\n/,
+  );
+  assert.doesNotMatch(pinned.stdout, /updated_day|%%T\*/);
 });

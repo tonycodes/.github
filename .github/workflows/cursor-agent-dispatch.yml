@@ -29,14 +29,17 @@ on:
 
 permissions: {}
 
+# One group per repository so the hourly cap check and the launch cannot race
+# across issues or pull requests. cancel-in-progress stays false so a queued
+# item still runs after the one holding the group finishes.
 concurrency:
-  group: cursor-agent-${{ github.repository }}-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+  group: cursor-agent-${{ github.repository }}
   cancel-in-progress: false
 
 jobs:
   dispatch:
     name: Launch Cursor agent
-    if: vars.CURSOR_AGENT_DISPATCH != 'off'
+    if: vars.CURSOR_AGENT_DISPATCH == 'on'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -65,9 +68,9 @@ jobs:
           set -euo pipefail
           number="$(node "${DISPATCH_SCRIPT}" --event-path "${EVENT_PATH}" --print number)"
           since="$(node "${DISPATCH_SCRIPT}" --print launch-window-start)"
-          updated_day="${since%%T*}"
+          query="$(node "${DISPATCH_SCRIPT}" --print launch-search-query --repo "${GITHUB_REPOSITORY}" --since "${since}")"
           gh api search/issues \
-            -f q="repo:${GITHUB_REPOSITORY} label:agent-started updated:>=${updated_day}" \
+            -f q="${query}" \
             -f sort=updated \
             -f order=desc \
             -f per_page=100 \
