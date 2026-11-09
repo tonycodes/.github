@@ -70,7 +70,7 @@ permissions:
 
 jobs:
   dispatch:
-    uses: tonycodes/.github/.github/workflows/cursor-agent-dispatch.yml@495edcafe5c8e647c7f45f973e54e02b51118c34
+    uses: tonycodes/.github/.github/workflows/cursor-agent-dispatch.yml@e88b0681dd54fc6d69b4bc528b1e5477f04e9da5
     secrets:
       CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
 ```
