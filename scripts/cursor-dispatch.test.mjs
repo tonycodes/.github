@@ -258,6 +258,36 @@ test("cap search query uses a one-hour timestamp", () => {
   assert.throws(() => launchSearchQuery("tonycodes/example", "2026-11-09"), /UTC timestamp/);
 });
 
+test("a search body with no items or incomplete_results does not launch", () => {
+  assert.equal(recentLaunchCountFromSearch({ total_count: 0 }), null);
+  assert.equal(recentLaunchCountFromSearch({ items: null, total_count: 0 }), null);
+  assert.equal(
+    recentLaunchCountFromSearch({ incomplete_results: true, items: [], total_count: 0 }),
+    null,
+  );
+  assert.equal(recentLaunchCountFromSearch({ items: [], total_count: 0 }), 0);
+  for (const recentLaunchCount of [null]) {
+    const result = plan("issue-opened-tonycodes.json", "issues", { recentLaunchCount });
+    assert.equal(result.dispatch, false);
+    assert.match(result.reason, /not usable/);
+  }
+  const incomplete = recentLaunchCountFromSearch({
+    incomplete_results: true,
+    items: [{ updated_at: "2026-11-09T22:00:00Z" }],
+    total_count: 1,
+  });
+  const skipped = plan("issue-opened-tonycodes.json", "issues", { recentLaunchCount: incomplete });
+  assert.equal(skipped.dispatch, false);
+  assert.match(skipped.reason, /not usable/);
+});
+
+test("future-skewed launch timestamps still count toward the cap", () => {
+  const now = Date.parse("2026-11-09T22:00:00Z");
+  const skewed = new Date(now + 5 * 60 * 1000).toISOString();
+  const stale = new Date(now - 2 * 60 * 60 * 1000).toISOString();
+  assert.equal(countRecentLaunches([skewed, stale], now), 1);
+});
+
 test("launch timestamps outside the last hour do not count toward the cap", () => {
   const now = Date.parse("2026-11-09T22:00:00Z");
   const recent = new Date(now - 30 * 60 * 1000).toISOString();
@@ -359,7 +389,11 @@ test("dispatch workflow pins actions, masks the key, and limits curl", () => {
   assert.equal(dispatchEnabled(killSwitch, null), false);
   assert.equal(dispatchEnabled(killSwitch, ""), false);
   assert.equal(dispatchEnabled(killSwitch, "off"), false);
+  assert.equal(dispatchEnabled(killSwitch, "OFF"), false);
   assert.equal(dispatchEnabled(killSwitch, "on"), true);
+  assert.equal(dispatchEnabled(killSwitch, "On"), true);
+  assert.equal(dispatchEnabled(killSwitch, "ON"), true);
+  assert.match(workflow, /queue:\s*max/);
   assert.match(workflow, /concurrency:/);
   assert.match(
     workflow,
@@ -385,18 +419,27 @@ test("dispatch workflow pins actions, masks the key, and limits curl", () => {
   const withoutMask = workflow.replaceAll('echo "::add-mask::${CURSOR_API_KEY}"', "");
   assert.doesNotMatch(withoutMask, /echo\b[^\n]*CURSOR_API_KEY/);
   assert.doesNotMatch(workflow, /\b\d{1,3}(?:\.\d{1,3}){3}\b/);
+  const deploy = readFileSync(
+    join(repoRoot, ".github", "workflows", "reusable-deploy.yml"),
+    "utf8",
+  );
+  const sshUses = [...deploy.matchAll(/^\s*uses:\s*(\S+)/gm)]
+    .map((match) => match[1])
+    .filter((use) => use.startsWith("webfactory/ssh-agent@"));
+  assert.deepEqual(sshUses.length, 1);
   const uses = [...workflow.matchAll(/^ {8}uses: (\S+)/gm)].map((match) => match[1]);
   assert.ok(uses.length > 0);
-  for (const use of uses) {
+  for (const use of [...uses, ...sshUses]) {
     assert.match(use, /@[0-9a-f]{40}$/);
   }
+  assert.match(deploy, /uses: webfactory\/ssh-agent@[0-9a-f]{40} # v0\.9\.0/);
 });
 
 function dispatchEnabled(expression, variable) {
   const equals = expression.match(/^vars\.CURSOR_AGENT_DISPATCH == '([^']*)'$/);
   if (!equals) return false;
   if (variable == null || variable === "") return false;
-  return variable === equals[1];
+  return variable.toLowerCase() === equals[1].toLowerCase();
 }
 
 function assertSafetyPhrases(text) {
@@ -423,6 +466,8 @@ test("readme documents the caller snippet", () => {
   assert.match(cursor, /CURSOR_API_KEY:\s*\$\{\{\s*secrets\.CURSOR_API_KEY\s*\}\}/);
   assert.doesNotMatch(cursor, /secrets:\s*inherit/);
   assert.match(cursor, /dispatch is off unless the repo variable is set to 'on'/);
+  assert.match(cursor, /case-insensitive/);
+  assert.match(cursor, /`On` and `ON`/);
   const pin = cursor.match(
     /cursor-agent-dispatch\.yml@([0-9a-f]{40})/,
   )[1];
