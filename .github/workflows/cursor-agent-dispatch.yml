@@ -72,7 +72,7 @@ jobs:
           number="$(node "${DISPATCH_SCRIPT}" --event-path "${EVENT_PATH}" --print number)"
           since="$(node "${DISPATCH_SCRIPT}" --print launch-window-start)"
           query="$(node "${DISPATCH_SCRIPT}" --print launch-search-query --repo "${GITHUB_REPOSITORY}" --since "${since}")"
-          gh api search/issues \
+          gh api --method GET search/issues \
             -f q="${query}" \
             -f sort=updated \
             -f order=desc \

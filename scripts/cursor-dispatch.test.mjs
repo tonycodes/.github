@@ -393,7 +393,7 @@ test("dispatch workflow pins actions, masks the key, and limits curl", () => {
   assert.equal(dispatchEnabled(killSwitch, "on"), true);
   assert.equal(dispatchEnabled(killSwitch, "On"), true);
   assert.equal(dispatchEnabled(killSwitch, "ON"), true);
-  assert.match(workflow, /queue:\s*max/);
+  assert.equal(concurrencyValue(workflow, "queue"), "max");
   assert.match(workflow, /concurrency:/);
   assert.match(
     workflow,
@@ -409,6 +409,7 @@ test("dispatch workflow pins actions, masks the key, and limits curl", () => {
   assert.match(workflow, /https:\/\/api\.cursor\.com\/v1\/agents/);
   assert.match(workflow, /agent-started/);
   assert.match(workflow, /--since "\$\{since\}"/);
+  assert.match(workflow, /^ {10}gh api --method GET search\/issues \\$/m);
   assert.match(workflow, /--print launch-search-query/);
   assert.doesNotMatch(workflow, /updated_day|%%T\*/);
   assert.match(workflow, /max_launches_per_hour:/);
@@ -423,7 +424,7 @@ test("dispatch workflow pins actions, masks the key, and limits curl", () => {
     join(repoRoot, ".github", "workflows", "reusable-deploy.yml"),
     "utf8",
   );
-  const sshUses = [...deploy.matchAll(/^\s*uses:\s*(\S+)/gm)]
+  const sshUses = [...deploy.matchAll(/^\s*(?:-\s*)?uses:\s*(\S+)/gm)]
     .map((match) => match[1])
     .filter((use) => use.startsWith("webfactory/ssh-agent@"));
   assert.deepEqual(sshUses.length, 1);
@@ -434,6 +435,13 @@ test("dispatch workflow pins actions, masks the key, and limits curl", () => {
   }
   assert.match(deploy, /uses: webfactory\/ssh-agent@[0-9a-f]{40} # v0\.9\.0/);
 });
+
+function concurrencyValue(workflow, key) {
+  const block = workflow.match(/^concurrency:\n((?:  .*\n)*)/m);
+  if (!block) return undefined;
+  const line = block[1].match(new RegExp(`^  ${key}:\\s*(\\S+)\\s*$`, "m"));
+  return line ? line[1] : undefined;
+}
 
 function dispatchEnabled(expression, variable) {
   const equals = expression.match(/^vars\.CURSOR_AGENT_DISPATCH == '([^']*)'$/);
@@ -471,6 +479,7 @@ test("readme documents the caller snippet", () => {
   const pin = cursor.match(
     /cursor-agent-dispatch\.yml@([0-9a-f]{40})/,
   )[1];
+  assert.equal(pin, "495edcafe5c8e647c7f45f973e54e02b51118c34");
   const pinned = spawnSync(
     "git",
     ["show", `${pin}:.github/workflows/cursor-agent-dispatch.yml`],
@@ -478,6 +487,7 @@ test("readme documents the caller snippet", () => {
   );
   assert.equal(pinned.status, 0, pinned.stderr);
   assert.match(pinned.stdout, /vars\.CURSOR_AGENT_DISPATCH == 'on'/);
+  assert.equal(concurrencyValue(pinned.stdout, "queue"), "max");
   assert.match(
     pinned.stdout,
     /group: cursor-agent-\$\{\{ github\.repository \}\}\n/,
