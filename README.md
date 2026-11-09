@@ -46,7 +46,7 @@ jobs:
 
 Launches a Cursor cloud agent for `issues` opened and for pull requests that are opened as non-drafts or marked ready for review, so calling repositories do not need a polling agent. The workflow is `workflow_call` and reads `github.event` from the caller. Optional input `max_launches_per_hour` defaults to 5.
 
-For every caller, dispatch is off unless the repo variable is set to 'on' (`CURSOR_AGENT_DISPATCH`). This repository does not set that variable from CI.
+For every caller, dispatch is off unless the repo variable is set to 'on' (`CURSOR_AGENT_DISPATCH`). GitHub's `==` comparison is case-insensitive, so `On` and `ON` enable dispatch too. Any other value, including an unset variable, stays off. This repository does not set that variable from CI.
 
 The agent runs when the author is `tonycodes`, or the item has the `agent-ok` label. Authors other than `tonycodes` get a plan comment only, with no code changes. It skips forks, bot authors, draft pull requests that were just opened, pull request head branches that start with `cursor/`, API-created issues, bulk-imported issues, items that already have `agent-started`, and repositories that already hit the hourly launch cap. Each launch uses a deterministic id from the repository and the issue or pull request number, so a retry does not start a second agent. On a launch it creates `agent-started` with `--force` if needed and adds it. If the Cursor API call fails, it removes that label so a rerun can try again.
 

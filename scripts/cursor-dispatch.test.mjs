@@ -439,7 +439,7 @@ function dispatchEnabled(expression, variable) {
   const equals = expression.match(/^vars\.CURSOR_AGENT_DISPATCH == '([^']*)'$/);
   if (!equals) return false;
   if (variable == null || variable === "") return false;
-  return variable === equals[1];
+  return variable.toLowerCase() === equals[1].toLowerCase();
 }
 
 function assertSafetyPhrases(text) {

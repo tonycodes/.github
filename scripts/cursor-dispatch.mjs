@@ -71,6 +71,7 @@ export function decide({
 
   const cap = normalizePositiveInt(maxLaunchesPerHour, DEFAULT_MAX_LAUNCHES_PER_HOUR);
   if (cap == null) return skip("skipped: launch cap is not usable", number);
+  if (recentLaunchCount === null) return skip("skipped: launch count is not usable", number);
   const launches = normalizeNonNegativeInt(recentLaunchCount);
   if (launches == null) return skip("skipped: launch count is not usable", number);
   if (launches >= cap) {
@@ -251,7 +252,7 @@ export function countRecentLaunches(timestamps, now = Date.now(), totalCount = u
   const cutoff = now - LAUNCH_WINDOW_MS;
   const filtered = list.filter((value) => {
     const time = Date.parse(value);
-    return Number.isFinite(time) && time >= cutoff && time <= now + 1000;
+    return Number.isFinite(time) && time >= cutoff;
   }).length;
   if (Number.isInteger(totalCount) && totalCount > list.length) {
     return Math.max(filtered, totalCount);
@@ -260,8 +261,9 @@ export function countRecentLaunches(timestamps, now = Date.now(), totalCount = u
 }
 
 export function recentLaunchCountFromSearch(payload, now = Date.now()) {
-  const items = Array.isArray(payload?.items) ? payload.items : [];
-  const timestamps = items
+  if (!payload || typeof payload !== "object" || !Array.isArray(payload.items)) return null;
+  if (payload.incomplete_results === true) return null;
+  const timestamps = payload.items
     .map((item) => item?.updated_at)
     .filter((value) => typeof value === "string");
   const inWindow = countRecentLaunches(timestamps, now);

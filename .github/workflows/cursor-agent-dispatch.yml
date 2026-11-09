@@ -30,11 +30,14 @@ on:
 permissions: {}
 
 # One group per repository so the hourly cap check and the launch cannot race
-# across issues or pull requests. cancel-in-progress stays false so a queued
-# item still runs after the one holding the group finishes.
+# across issues or pull requests. queue: max keeps up to 100 pending runs so a
+# burst does not cancel the middle item. The default queue keeps only one
+# pending run. cancel-in-progress stays false; queue: max cannot be combined
+# with cancel-in-progress: true.
 concurrency:
   group: cursor-agent-${{ github.repository }}
   cancel-in-progress: false
+  queue: max
 
 jobs:
   dispatch:
