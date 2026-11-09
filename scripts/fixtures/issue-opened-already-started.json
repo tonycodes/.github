@@ -1,0 +1,17 @@
+{
+  "action": "opened",
+  "issue": {
+    "number": 15,
+    "title": "Already claimed",
+    "body": "An agent was already started",
+    "html_url": "https://github.com/tonycodes/example/issues/15",
+    "user": { "login": "tonycodes", "type": "User" },
+    "labels": [{ "name": "agent-started" }]
+  },
+  "repository": {
+    "full_name": "tonycodes/example",
+    "html_url": "https://github.com/tonycodes/example",
+    "default_branch": "main",
+    "fork": false
+  }
+}
