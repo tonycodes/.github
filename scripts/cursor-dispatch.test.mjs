@@ -428,7 +428,7 @@ test("dispatch workflow pins actions, masks the key, and limits curl", () => {
     .map((match) => match[1])
     .filter((use) => use.startsWith("webfactory/ssh-agent@"));
   assert.deepEqual(sshUses.length, 1);
-  const uses = [...workflow.matchAll(/^ {8}uses: (\S+)/gm)].map((match) => match[1]);
+  const uses = [...workflow.matchAll(/^\s*(?:-\s*)?uses:\s*(\S+)/gm)].map((match) => match[1]);
   assert.ok(uses.length > 0);
   for (const use of [...uses, ...sshUses]) {
     assert.match(use, /@[0-9a-f]{40}$/);
@@ -479,7 +479,20 @@ test("readme documents the caller snippet", () => {
   const pin = cursor.match(
     /cursor-agent-dispatch\.yml@([0-9a-f]{40})/,
   )[1];
-  assert.equal(pin, "495edcafe5c8e647c7f45f973e54e02b51118c34");
+  const merge = "e88b0681dd54fc6d69b4bc528b1e5477f04e9da5";
+  for (const stale of [
+    "495edcafe5c8e647c7f45f973e54e02b51118c34",
+    "f8d16f54aa1263425bb1849d64c3dbb5ee06f008",
+  ]) {
+    assert.equal(dispatchWorkflowHasFix(stale), false);
+    assert.notEqual(pin, stale);
+  }
+  const ancestor = spawnSync("git", ["merge-base", "--is-ancestor", pin, "HEAD"], {
+    cwd: repoRoot,
+  });
+  assert.equal(ancestor.status, 0, "caller pin must be an ancestor of HEAD");
+  assert.equal(dispatchWorkflowHasFix(pin), true);
+  assert.equal(pin, merge);
   const pinned = spawnSync(
     "git",
     ["show", `${pin}:.github/workflows/cursor-agent-dispatch.yml`],
@@ -488,9 +501,21 @@ test("readme documents the caller snippet", () => {
   assert.equal(pinned.status, 0, pinned.stderr);
   assert.match(pinned.stdout, /vars\.CURSOR_AGENT_DISPATCH == 'on'/);
   assert.equal(concurrencyValue(pinned.stdout, "queue"), "max");
+  assert.match(pinned.stdout, /^ {10}gh api --method GET search\/issues \\$/m);
   assert.match(
     pinned.stdout,
     /group: cursor-agent-\$\{\{ github\.repository \}\}\n/,
   );
   assert.doesNotMatch(pinned.stdout, /updated_day|%%T\*/);
 });
+
+function dispatchWorkflowHasFix(sha) {
+  const shown = spawnSync(
+    "git",
+    ["show", `${sha}:.github/workflows/cursor-agent-dispatch.yml`],
+    { encoding: "utf8", cwd: repoRoot },
+  );
+  if (shown.status !== 0) return false;
+  return concurrencyValue(shown.stdout, "queue") === "max"
+    && /^ {10}gh api --method GET search\/issues \\$/m.test(shown.stdout);
+}
