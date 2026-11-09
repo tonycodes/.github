@@ -1,0 +1,35 @@
+# Tests and actionlint for this repository.
+
+name: CI
+
+on:
+  pull_request:
+
+permissions: {}
+
+jobs:
+  test:
+    name: Tests and actionlint
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Unit tests
+        shell: bash
+        run: node --test scripts/cursor-dispatch.test.mjs
+
+      - name: actionlint
+        uses: raven-actions/actionlint@3d39aea434753780c3b3d4a1a31c854b4dbf49d7 # v2.2.0
+        with:
+          version: "1.7.12"
+          shellcheck: true
+          pyflakes: false
+          # actionlint 1.7.12 predates job.workflow_repository and job.workflow_sha.
+          # https://docs.github.com/en/actions/reference/workflows-and-actions/contexts#job-context
+          flags: '-ignore property\s.workflow_(repository|sha).\sis\snot\sdefined'

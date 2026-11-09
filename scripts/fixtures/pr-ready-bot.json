@@ -1,0 +1,27 @@
+{
+  "action": "ready_for_review",
+  "pull_request": {
+    "number": 36,
+    "title": "Bump dependency",
+    "body": "Automated bump",
+    "html_url": "https://github.com/tonycodes/example/pull/36",
+    "draft": false,
+    "user": { "login": "dependabot[bot]", "type": "Bot" },
+    "head": {
+      "ref": "dependabot/npm/left-pad",
+      "sha": "cccccccccccccccccccccccccccccccccccccccc",
+      "repo": { "full_name": "tonycodes/example", "fork": false }
+    },
+    "base": {
+      "ref": "main",
+      "repo": { "full_name": "tonycodes/example", "fork": false }
+    },
+    "labels": [{ "name": "agent-ok" }]
+  },
+  "repository": {
+    "full_name": "tonycodes/example",
+    "html_url": "https://github.com/tonycodes/example",
+    "default_branch": "main",
+    "fork": false
+  }
+}

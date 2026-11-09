@@ -1,0 +1,17 @@
+{
+  "action": "opened",
+  "issue": {
+    "number": 12,
+    "title": "Fix the parser",
+    "body": "Null pointer on empty input",
+    "html_url": "https://github.com/tonycodes/example/issues/12",
+    "user": { "login": "tonycodes", "type": "User" },
+    "labels": []
+  },
+  "repository": {
+    "full_name": "tonycodes/example",
+    "html_url": "https://github.com/tonycodes/example",
+    "default_branch": "main",
+    "fork": false
+  }
+}

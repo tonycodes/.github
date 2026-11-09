@@ -1,0 +1,17 @@
+{
+  "action": "opened",
+  "issue": {
+    "number": 14,
+    "title": "Labeled for an agent",
+    "body": "A contributor asked for an agent fix",
+    "html_url": "https://github.com/tonycodes/example/issues/14",
+    "user": { "login": "otherperson", "type": "User" },
+    "labels": [{ "name": "bug" }, { "name": "agent-ok" }]
+  },
+  "repository": {
+    "full_name": "tonycodes/example",
+    "html_url": "https://github.com/tonycodes/example",
+    "default_branch": "main",
+    "fork": false
+  }
+}

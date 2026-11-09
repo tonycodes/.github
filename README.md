@@ -42,6 +42,41 @@ jobs:
 
 **Inputs:** `app_name`, `prod_domain`, `vps_host`, `network`, `migration_command`, `seed_command`, `worker_name`, `worker_command`, `vite_env_from_swarm`, `build_args`, `post_deploy_script`, `health_endpoint`, `docker_volumes`
 
+### `cursor-agent-dispatch.yml` — Cursor cloud agent
+
+Launches a Cursor cloud agent for `issues` opened and for pull requests that are opened as non-drafts or marked ready for review, so calling repositories do not need a polling agent. The workflow is `workflow_call` and reads `github.event` from the caller. Optional input `max_launches_per_hour` defaults to 5.
+
+For every caller, dispatch is off unless the repo variable is set to 'on' (`CURSOR_AGENT_DISPATCH`). This repository does not set that variable from CI.
+
+The agent runs when the author is `tonycodes`, or the item has the `agent-ok` label. Authors other than `tonycodes` get a plan comment only, with no code changes. It skips forks, bot authors, draft pull requests that were just opened, pull request head branches that start with `cursor/`, API-created issues, bulk-imported issues, items that already have `agent-started`, and repositories that already hit the hourly launch cap. Each launch uses a deterministic id from the repository and the issue or pull request number, so a retry does not start a second agent. On a launch it creates `agent-started` with `--force` if needed and adds it. If the Cursor API call fails, it removes that label so a rerun can try again.
+
+An opened issue from `tonycodes` gets a test-first fix: failing test first, then the change that makes it pass, then a pull request for the normal gates (dev tests, PO after-green review, QA G3). A non-draft pull request from `tonycodes`, including one marked ready for review, gets review comments only. That agent is told not to push. Every prompt forbids deploys, releases, workflow edits, ruleset edits, secret edits, opening issues, and starting further agents.
+
+`CURSOR_API_KEY` is required to launch an agent. Pass it explicitly. The workflow masks the key and sends it only in an `Authorization: Bearer` header. A launch without the key fails. Pin the workflow by the full commit SHA below. That SHA is the commit that contains this dispatcher.
+
+```yaml
+name: Cursor Agent
+
+on:
+  issues:
+    types: [opened]
+  pull_request:
+    types: [opened, ready_for_review]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  dispatch:
+    uses: tonycodes/.github/.github/workflows/cursor-agent-dispatch.yml@f8d16f54aa1263425bb1849d64c3dbb5ee06f008
+    secrets:
+      CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+```
+
+The launch call is `POST https://api.cursor.com/v1/agents`. That is the current Create Agent endpoint in the [Cloud Agents API](https://cursor.com/docs/cloud-agent/api/endpoints). Authentication is the bearer header described in the [Cursor APIs overview](https://cursor.com/docs/api). `POST /v0/agents` is the legacy surface and is not called.
+
 ### `reusable-release.yml` — Semantic Versioning
 
 Auto-creates tags and GitHub releases using semantic-release after successful deploy.

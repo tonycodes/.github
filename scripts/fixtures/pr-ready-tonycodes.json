@@ -1,0 +1,27 @@
+{
+  "action": "ready_for_review",
+  "pull_request": {
+    "number": 34,
+    "title": "Add widget",
+    "body": "Implements the widget",
+    "html_url": "https://github.com/tonycodes/example/pull/34",
+    "draft": false,
+    "user": { "login": "tonycodes", "type": "User" },
+    "head": {
+      "ref": "feature/widget",
+      "sha": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "repo": { "full_name": "tonycodes/example", "fork": false }
+    },
+    "base": {
+      "ref": "main",
+      "repo": { "full_name": "tonycodes/example", "fork": false }
+    },
+    "labels": []
+  },
+  "repository": {
+    "full_name": "tonycodes/example",
+    "html_url": "https://github.com/tonycodes/example",
+    "default_branch": "main",
+    "fork": false
+  }
+}

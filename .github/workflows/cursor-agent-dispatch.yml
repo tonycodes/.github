@@ -1,0 +1,202 @@
+# Reusable Cursor cloud-agent dispatch.
+#
+# Callers trigger issues opened and pull_request ready_for_review, then call
+# this workflow. Decision rules and the API body live in scripts/cursor-dispatch.mjs.
+#
+# Create Agent: POST https://api.cursor.com/v1/agents
+# https://cursor.com/docs/cloud-agent/api/endpoints
+# Authorization: Bearer CURSOR_API_KEY
+# https://cursor.com/docs/api
+#
+# job.workflow_repository and job.workflow_sha check out this repo at the
+# workflow commit the caller pinned. actionlint 1.7.12 does not know those
+# properties yet; CI ignores only that schema message.
+
+name: Cursor Agent Dispatch
+
+on:
+  workflow_call:
+    inputs:
+      max_launches_per_hour:
+        description: Maximum Cursor agent launches for this repository per hour.
+        type: number
+        default: 5
+        required: false
+    secrets:
+      CURSOR_API_KEY:
+        description: Cursor Cloud Agents API key. Required to launch. Never printed.
+        required: false
+
+permissions: {}
+
+# One group per repository so the hourly cap check and the launch cannot race
+# across issues or pull requests. cancel-in-progress stays false so a queued
+# item still runs after the one holding the group finishes.
+concurrency:
+  group: cursor-agent-${{ github.repository }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    name: Launch Cursor agent
+    if: vars.CURSOR_AGENT_DISPATCH == 'on'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Checkout dispatch script
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ job.workflow_repository }}
+          ref: ${{ job.workflow_sha }}
+          persist-credentials: false
+          path: cursor-dispatch
+
+      - name: Decide
+        id: decide
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_PATH: ${{ github.event_path }}
+          GH_TOKEN: ${{ github.token }}
+          MAX_LAUNCHES_PER_HOUR: ${{ inputs.max_launches_per_hour }}
+          DISPATCH_SCRIPT: ${{ github.workspace }}/cursor-dispatch/scripts/cursor-dispatch.mjs
+        run: |
+          set -euo pipefail
+          number="$(node "${DISPATCH_SCRIPT}" --event-path "${EVENT_PATH}" --print number)"
+          since="$(node "${DISPATCH_SCRIPT}" --print launch-window-start)"
+          query="$(node "${DISPATCH_SCRIPT}" --print launch-search-query --repo "${GITHUB_REPOSITORY}" --since "${since}")"
+          gh api search/issues \
+            -f q="${query}" \
+            -f sort=updated \
+            -f order=desc \
+            -f per_page=100 \
+            > "${RUNNER_TEMP}/launch-search.json"
+          args=(
+            --event-name "${EVENT_NAME}"
+            --event-path "${EVENT_PATH}"
+            --out "${RUNNER_TEMP}/cursor-dispatch.json"
+            --github-output "${GITHUB_OUTPUT}"
+            --launch-search-path "${RUNNER_TEMP}/launch-search.json"
+            --max-launches-per-hour "${MAX_LAUNCHES_PER_HOUR}"
+          )
+          if [ -n "${number}" ]; then
+            case "${number}" in
+              *[!0-9]*)
+                echo "unexpected item number"
+                exit 1
+                ;;
+            esac
+            gh issue view "${number}" \
+              --repo "${GITHUB_REPOSITORY}" \
+              --json labels \
+              --jq '[.labels[].name]' \
+              > "${RUNNER_TEMP}/live-labels.json"
+            args+=(--live-labels-path "${RUNNER_TEMP}/live-labels.json")
+          fi
+          node "${DISPATCH_SCRIPT}" "${args[@]}"
+
+      - name: Claim agent-started
+        if: steps.decide.outputs.dispatch == 'true'
+        shell: bash
+        env:
+          ISSUE_NUMBER: ${{ steps.decide.outputs.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          case "${ISSUE_NUMBER}" in
+            ''|*[!0-9]*)
+              echo "missing issue or pull request number"
+              exit 1
+              ;;
+          esac
+          gh label create agent-started \
+            --repo "${GITHUB_REPOSITORY}" \
+            --color 0E8A16 \
+            --description "Cursor cloud agent dispatch claimed this item" \
+            --force
+          gh issue edit "${ISSUE_NUMBER}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --add-label agent-started
+
+      - name: Launch Cursor cloud agent
+        id: launch
+        if: steps.decide.outputs.dispatch == 'true'
+        shell: bash
+        env:
+          CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
+          PLAN_PATH: ${{ runner.temp }}/cursor-dispatch.json
+          DISPATCH_SCRIPT: ${{ github.workspace }}/cursor-dispatch/scripts/cursor-dispatch.mjs
+        run: |
+          set -euo pipefail
+          if [ -z "${CURSOR_API_KEY}" ]; then
+            echo "Cursor API key is not set"
+            exit 1
+          fi
+          echo "::add-mask::${CURSOR_API_KEY}"
+          body_path="${RUNNER_TEMP}/cursor-dispatch-body.json"
+          endpoint_path="${RUNNER_TEMP}/cursor-dispatch-endpoint.txt"
+          response_path="${RUNNER_TEMP}/cursor-agent-response.json"
+          http_path="${RUNNER_TEMP}/cursor-agent-http.txt"
+          node "${DISPATCH_SCRIPT}" \
+            --extract launch \
+            --plan "${PLAN_PATH}" \
+            --body "${body_path}" \
+            --endpoint-file "${endpoint_path}"
+          endpoint="$(cat "${endpoint_path}")"
+          case "${endpoint}" in
+            https://api.cursor.com/v1/agents) ;;
+            *)
+              echo "refusing unexpected endpoint"
+              exit 1
+              ;;
+          esac
+          set +e
+          curl --fail-with-body --max-time 60 --silent --show-error \
+            --proto '=https' \
+            --request POST \
+            --url "${endpoint}" \
+            --header "Authorization: Bearer ${CURSOR_API_KEY}" \
+            --header "Content-Type: application/json" \
+            --header "Accept: application/json" \
+            --output "${response_path}" \
+            --write-out '%{http_code}' \
+            --data "@${body_path}" \
+            > "${http_path}"
+          curl_status=$?
+          set -e
+          http_code="$(tr -d '\n' < "${http_path}")"
+          if [ "${curl_status}" -ne 0 ]; then
+            if [ "${http_code}" = "409" ]; then
+              echo "agent already launched for this item"
+              exit 0
+            fi
+            echo "Cursor Cloud Agents API request failed"
+            if [ -s "${response_path}" ]; then
+              cat "${response_path}"
+            fi
+            exit 1
+          fi
+          node "${DISPATCH_SCRIPT}" --summarize response --response "${response_path}" \
+            || echo "Agent launched; response did not include a readable id"
+
+      - name: Release claim when launch fails
+        if: failure() && steps.decide.outputs.dispatch == 'true' && steps.launch.outcome == 'failure'
+        shell: bash
+        env:
+          ISSUE_NUMBER: ${{ steps.decide.outputs.number }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          case "${ISSUE_NUMBER}" in
+            ''|*[!0-9]*)
+              echo "missing issue or pull request number"
+              exit 1
+              ;;
+          esac
+          gh issue edit "${ISSUE_NUMBER}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --remove-label agent-started
