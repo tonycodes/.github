@@ -24,6 +24,9 @@ jobs:
 
 **Inputs:** `runs_on`, `node_version`, `has_prisma`, `has_client`, `has_mcp`
 
+`setup-node` enables Actions `cache: npm` only on GitHub-hosted runners. Self-hosted
+(Mac) skips it — that cache path often downloads ~2GB then fails auth mid-restore.
+
 ### `reusable-deploy.yml` — Production Deploy
 
 Builds Docker image on VPS and deploys via Docker Swarm.

@@ -49,7 +49,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node_version }}
-          cache: npm
+          # GitHub-hosted only. On self-hosted Mac the Actions npm cache often
+          # downloads ~2GB then fails auth mid-restore, burning 10–20 minutes
+          # for no hit. npm ci is usually seconds for these trees.
+          cache: ${{ runner.environment == 'github-hosted' && 'npm' || '' }}
       - run: npm ci
       - if: ${{ inputs.has_prisma }}
         run: npx prisma generate
@@ -66,7 +69,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ inputs.node_version }}
-          cache: npm
+          # GitHub-hosted only. On self-hosted Mac the Actions npm cache often
+          # downloads ~2GB then fails auth mid-restore, burning 10–20 minutes
+          # for no hit. npm ci is usually seconds for these trees.
+          cache: ${{ runner.environment == 'github-hosted' && 'npm' || '' }}
       - run: npm ci
       - if: ${{ inputs.has_prisma }}
         run: npx prisma generate
