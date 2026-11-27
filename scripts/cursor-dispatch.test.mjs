@@ -466,7 +466,7 @@ test("readme documents the caller snippet", () => {
   assert.match(cursor, /types: \[opened, ready_for_review\]/);
   assert.match(
     cursor,
-    /uses: tonycodes\/\.github\/\.github\/workflows\/cursor-agent-dispatch\.yml@[0-9a-f]{40}/,
+    /uses: tonywritescode\/\.github\/\.github\/workflows\/cursor-agent-dispatch\.yml@[0-9a-f]{40}/,
   );
   assert.match(cursor, /contents: read/);
   assert.match(cursor, /issues: write/);
