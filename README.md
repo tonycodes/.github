@@ -16,7 +16,7 @@ on:
     branches: [main]
 jobs:
   ci:
-    uses: tonycodes/.github/.github/workflows/reusable-ci.yml@main
+    uses: tonywritescode/.github/.github/workflows/reusable-ci.yml@main
     with:
       has_prisma: true
       has_client: true
@@ -35,7 +35,7 @@ Builds Docker image on VPS and deploys via Docker Swarm.
 # .github/workflows/deploy.yml (partial)
 jobs:
   deploy:
-    uses: tonycodes/.github/.github/workflows/reusable-deploy.yml@main
+    uses: tonywritescode/.github/.github/workflows/reusable-deploy.yml@main
     with:
       app_name: my-app
       prod_domain: my-app.com
@@ -73,7 +73,7 @@ permissions:
 
 jobs:
   dispatch:
-    uses: tonycodes/.github/.github/workflows/cursor-agent-dispatch.yml@e88b0681dd54fc6d69b4bc528b1e5477f04e9da5
+    uses: tonywritescode/.github/.github/workflows/cursor-agent-dispatch.yml@e88b0681dd54fc6d69b4bc528b1e5477f04e9da5
     secrets:
       CURSOR_API_KEY: ${{ secrets.CURSOR_API_KEY }}
 ```
@@ -89,7 +89,7 @@ Auto-creates tags and GitHub releases using semantic-release after successful de
 jobs:
   release:
     needs: deploy
-    uses: tonycodes/.github/.github/workflows/reusable-release.yml@main
+    uses: tonywritescode/.github/.github/workflows/reusable-release.yml@main
     permissions:
       contents: write
     secrets: inherit

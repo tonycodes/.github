@@ -1,5 +1,5 @@
 # =============================================================================
-# Reusable Deploy Workflow — tonycodes/.github
+# Reusable Deploy Workflow — tonywritescode/.github
 # =============================================================================
 # Builds Docker image on VPS and updates/creates Swarm service.
 # Called by each repo's deploy.yml with repo-specific inputs.
@@ -7,7 +7,7 @@
 # Usage:
 #   jobs:
 #     deploy:
-#       uses: tonycodes/.github/.github/workflows/reusable-deploy.yml@main
+#       uses: tonywritescode/.github/.github/workflows/reusable-deploy.yml@main
 #       with:
 #         app_name: my-app
 #         prod_domain: my-app.com

@@ -1,5 +1,5 @@
 # =============================================================================
-# Reusable CI Workflow — tonycodes/.github
+# Reusable CI Workflow — tonywritescode/.github
 # =============================================================================
 # Runs quality checks and tests on PRs.
 # Optimized for self-hosted runners: combines lightweight checks into one job
@@ -8,7 +8,7 @@
 # Usage:
 #   jobs:
 #     ci:
-#       uses: tonycodes/.github/.github/workflows/reusable-ci.yml@main
+#       uses: tonywritescode/.github/.github/workflows/reusable-ci.yml@main
 #       with:
 #         has_prisma: true
 #         has_client: true

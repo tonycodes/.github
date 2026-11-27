@@ -1,5 +1,5 @@
 # =============================================================================
-# Reusable Release Workflow — tonycodes/.github
+# Reusable Release Workflow — tonywritescode/.github
 # =============================================================================
 # Runs semantic-release to auto-tag and create GitHub releases.
 # Called after a successful deploy.
@@ -8,7 +8,7 @@
 #   jobs:
 #     release:
 #       needs: deploy
-#       uses: tonycodes/.github/.github/workflows/reusable-release.yml@main
+#       uses: tonywritescode/.github/.github/workflows/reusable-release.yml@main
 #       permissions:
 #         contents: write
 #       secrets: inherit
